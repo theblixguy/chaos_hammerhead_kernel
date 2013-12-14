@@ -35,7 +35,6 @@ echo "0" > $TMPFILE;
 	xmllint --noout $XML2CHECK;
 	if [ $? == 1 ]; then
         	echo "${bldred} xml-Error: $XML2CHECK ${txtrst}";
-        	exit 1;
 	fi;
 
 	# remove previous initramfs files
