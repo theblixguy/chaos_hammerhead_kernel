@@ -33,7 +33,9 @@
 #include <linux/input/doubletap2wake.h>
 #endif
 #endif
-
+#ifdef CONFIG_PWRKEY_SUSPEND
+#include <linux/qpnp/power-on.h>
+#endif
 #include "mdss_dsi.h"
 
 #define DT_CMD_HDR 6
@@ -191,6 +193,11 @@ void mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 	prevent_sleep = prevent_sleep || (dt2w_switch > 0);
 #endif
 #endif
+#ifdef CONFIG_PWRKEY_SUSPEND
+	if (pwrkey_pressed)
+		prevent_sleep = false;
+#endif
+
 	if (pdata == NULL) {
 		pr_err("%s: Invalid input data\n", __func__);
 		return;
@@ -322,6 +329,10 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	if (local_pdata->on_cmds.cmd_cnt)
 		mdss_dsi_panel_cmds_send(ctrl, &local_pdata->on_cmds);
 
+#ifdef CONFIG_PWRKEY_SUSPEND
+	pwrkey_pressed = false;	
+#endif
+		
 	pr_info("%s\n", __func__);
 	return 0;
 }
@@ -341,6 +352,11 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 	prevent_sleep = prevent_sleep || (dt2w_switch > 0);
 #endif
 #endif
+#ifdef CONFIG_PWRKEY_SUSPEND
+	if (pwrkey_pressed)
+		prevent_sleep = false;
+#endif
+
 	if (pdata == NULL) {
 		pr_err("%s: Invalid input data\n", __func__);
 		return -EINVAL;
