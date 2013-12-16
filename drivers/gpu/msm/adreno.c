@@ -81,11 +81,35 @@
 static void adreno_start_work(struct work_struct *work);
 static void adreno_input_work(struct work_struct *work);
 
+/*
+ * The default values for the simpleondemand governor are 90 and 5,
+ * we use different values here.
+ * They have to be tuned and compare with the tz governor anyway.
+ */
+static struct devfreq_simple_ondemand_data adreno_ondemand_data = {
+	.upthreshold = 80,
+	.downdifferential = 20,
+};
+
+static struct devfreq_msm_adreno_tz_data adreno_tz_data = {
+	.bus = {
+		.max = 450,
+	},
+	.device_id = KGSL_DEVICE_3D0,
+};
+
+static const struct devfreq_governor_data adreno_governors[] = {
+	{ .name = "simple_ondemand", .data = &adreno_ondemand_data },
+	{ .name = "msm-adreno-tz", .data = &adreno_tz_data },
+};
+
 static const struct kgsl_functable adreno_functable;
 
 static struct adreno_device device_3d0 = {
 	.dev = {
 		KGSL_DEVICE_COMMON_INIT(device_3d0.dev),
+		.pwrscale = KGSL_PWRSCALE_INIT(adreno_governors,
+					ARRAY_SIZE(adreno_governors)),
 		.name = DEVICE_3D0_NAME,
 		.id = KGSL_DEVICE_3D0,
 		.mh = {
@@ -1474,10 +1498,6 @@ static int adreno_of_get_pwrlevels(struct device_node *parent,
 		&pdata->init_level))
 		pdata->init_level = 1;
 
-	if (adreno_of_read_property(parent, "qcom,step-pwrlevel",
-		&pdata->step_mul))
-		pdata->step_mul = 1;
-
 	if (pdata->init_level < 0 || pdata->init_level > pdata->num_levels) {
 		KGSL_CORE_ERR("Initial power level out of range\n");
 		pdata->init_level = 1;
@@ -1611,6 +1631,9 @@ static int adreno_of_get_pdata(struct platform_device *pdev)
 	pdata->strtstp_sleepwake = of_property_read_bool(pdev->dev.of_node,
 						"qcom,strtstp-sleepwake");
 
+	pdata->bus_control = of_property_read_bool(pdev->dev.of_node,
+					"qcom,bus-control");
+
 	if (adreno_of_read_property(pdev->dev.of_node, "qcom,clk-map",
 		&pdata->clk_map))
 		goto err;
@@ -1738,8 +1761,7 @@ adreno_probe(struct platform_device *pdev)
 	adreno_debugfs_init(device);
 	adreno_ft_init_sysfs(device);
 
-	kgsl_pwrscale_init(device);
-	kgsl_pwrscale_attach_policy(device, ADRENO_DEFAULT_PWRSCALE_POLICY);
+	kgsl_pwrscale_init(&pdev->dev, CONFIG_MSM_ADRENO_DEFAULT_GOVERNOR);
 
 
 	device->flags &= ~KGSL_FLAGS_SOFT_RESET;
@@ -1780,7 +1802,6 @@ static int __devexit adreno_remove(struct platform_device *pdev)
 
 	adreno_coresight_remove(pdev);
 
-	kgsl_pwrscale_detach_policy(device);
 	kgsl_pwrscale_close(device);
 
 	adreno_dispatcher_close(adreno_dev);
@@ -3086,10 +3107,10 @@ static long adreno_ioctl(struct kgsl_device_private *dev_priv,
 
 }
 
-static inline s64 adreno_ticks_to_us(u32 ticks, u32 gpu_freq)
+static inline s64 adreno_ticks_to_us(u32 ticks, u32 freq)
 {
-	gpu_freq /= 1000000;
-	return ticks / gpu_freq;
+	freq /= 1000000;
+	return ticks / freq;
 }
 
 static void adreno_power_stats(struct kgsl_device *device,
@@ -3097,32 +3118,21 @@ static void adreno_power_stats(struct kgsl_device *device,
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
-	unsigned int cycles = 0;
+	struct adreno_busy_data busy_data;
 
+	memset(stats, 0, sizeof(*stats));
 	/*
 	 * Get the busy cycles counted since the counter was last reset.
 	 * If we're not currently active, there shouldn't have been
 	 * any cycles since the last time this function was called.
 	 */
 	if (device->state == KGSL_STATE_ACTIVE)
-		cycles = adreno_dev->gpudev->busy_cycles(adreno_dev);
+		adreno_dev->gpudev->busy_cycles(adreno_dev, &busy_data);
 
-	/*
-	 * In order to calculate idle you have to have run the algorithm
-	 * at least once to get a start time.
-	 */
-	if (pwr->time != 0) {
-		s64 tmp = ktime_to_us(ktime_get());
-		stats->total_time = tmp - pwr->time;
-		pwr->time = tmp;
-		stats->busy_time = adreno_ticks_to_us(cycles, device->pwrctrl.
-				pwrlevels[device->pwrctrl.active_pwrlevel].
-				gpu_freq);
-	} else {
-		stats->total_time = 0;
-		stats->busy_time = 0;
-		pwr->time = ktime_to_us(ktime_get());
-	}
+	stats->busy_time = adreno_ticks_to_us(busy_data.gpu_busy,
+					      kgsl_pwrctrl_active_freq(pwr));
+	stats->ram_time = busy_data.vbif_ram_cycles;
+	stats->ram_wait = busy_data.vbif_starved_ram;
 }
 
 void adreno_irqctrl(struct kgsl_device *device, int state)
