@@ -59,6 +59,9 @@ delete("/system/etc/init.d/01zram-swap");
 delete("/system/etc/init.d/10enableUMS");
 delete("/system/etc/init.d/10enableMTP");
 delete("/system/etc/init.d/11nbmod");
+delete("/system/etc/init.d/99elementalx");
+delete("/system/etc/elementalx.conf");
+delete("/data/local/tmp/elementalx-kernel.log");
 delete_recursive("/system/etc/cron.d");
 delete_recursive("/system/lib/modules");
 delete_recursive("/data/.siyah");
@@ -67,6 +70,8 @@ delete_recursive("/data/.siyah");
 package_extract_dir("system", "/system");
 set_perm_recursive(0, 0, 0755, 0644, "/system/lib/modules");
 set_perm(0, 0, 06755, "/system/xbin/bash");
+set_perm(0, 0, 06755, "/system/usr/keychars/Vendor_045e_Product_0719.kcm");
+set_perm(0, 0, 06755, "/system/usr/keylayout/Vendor_045e_Product_0291.kl");
 
 symlink("toolbox", "/system/bin/cat", "/system/bin/chcon",
         "/system/bin/chmod", "/system/bin/chown", "/system/bin/clear",
